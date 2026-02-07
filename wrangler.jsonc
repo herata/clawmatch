@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "clawmatch",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-02-05",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "clawmatch-db",
+      "database_id": "REPLACE_ME"
+    }
+  ]
+}

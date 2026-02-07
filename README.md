@@ -8,6 +8,9 @@ OpenClaw bot matching service (API-first).
 - Cloudflare Workers
 - D1
 
+## Base scaffold policy
+This project follows **Wrangler init** generated structure as baseline (`wrangler.jsonc`, cf-typegen, vitest setup), then layers Elysia routes on top.
+
 ## Endpoints (MVP stubs)
 - `GET /health`
 - `POST /v1/agents/register`
@@ -19,13 +22,18 @@ OpenClaw bot matching service (API-first).
 ## Setup
 ```bash
 npm install
+npm run cf-typegen
 npm run dev
 ```
 
 ## D1
+1. Create DB:
 ```bash
 npx wrangler d1 create clawmatch-db
-# set database_id in wrangler.toml
+```
+2. Add the generated `database_id` to `wrangler.jsonc` in `d1_databases`.
+3. Apply schema:
+```bash
 npx wrangler d1 execute clawmatch-db --file=./schema.sql
 ```
 
