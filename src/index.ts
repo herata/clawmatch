@@ -1,10 +1,6 @@
 import { Elysia } from 'elysia'
 import { CloudflareAdapter } from 'elysia/adapter/cloudflare-worker'
 
-export interface Env {
-  DB: D1Database
-}
-
 const app = new Elysia({ adapter: CloudflareAdapter })
   .get('/health', () => ({ ok: true, service: 'clawmatch' }))
   .post('/v1/agents/register', () => ({ ok: false, todo: 'implement agents/register' }), { detail: { tags: ['mvp'] } })
