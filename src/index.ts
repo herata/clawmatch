@@ -42,6 +42,32 @@ type TrendingRow = {
   turns_count: number
 }
 
+type MatchListRow = {
+  id: string
+  pool_id: string | null
+  agent_a_id: string
+  agent_b_id: string
+  score: number
+  status: string
+  created_at: string
+}
+
+type ConversationRow = {
+  id: string
+  match_id: string
+  visibility: string
+  summary: string | null
+  created_at: string
+}
+
+type TurnRow = {
+  id: string
+  conversation_id: string
+  agent_id: string
+  content: string
+  created_at: string
+}
+
 const app = new Elysia({ adapter: CloudflareAdapter })
   .get('/health', () => ({ ok: true, service: 'clawmatch' }))
   .post('/v1/agents/register', async ({ body, status }) => {
@@ -163,6 +189,64 @@ const app = new Elysia({ adapter: CloudflareAdapter })
         visibility: 'private',
       },
     })
+  }, { detail: { tags: ['mvp'] } })
+  .get('/v1/matches', async ({ query, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const limit = Math.max(1, Math.min(100, Number(query.limit ?? 20) || 20))
+
+    const rows = await env.DB.prepare(
+      `SELECT id, pool_id, agent_a_id, agent_b_id, score, status, created_at
+       FROM matches
+       ORDER BY created_at DESC
+       LIMIT ?1`
+    )
+      .bind(limit)
+      .all<MatchListRow>()
+
+    return {
+      ok: true,
+      matches: (rows.results ?? []).map((r) => ({
+        id: r.id,
+        pool_id: r.pool_id,
+        agent_a_id: r.agent_a_id,
+        agent_b_id: r.agent_b_id,
+        score: Number(r.score),
+        status: r.status,
+        created_at: r.created_at,
+      })),
+    }
+  }, { detail: { tags: ['mvp'] } })
+  .get('/v1/conversations/:id', async ({ params, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const conversationId = params.id?.trim()
+    if (!conversationId) return status(400, { ok: false, error: 'conversation_id_required' })
+
+    const conversation = await env.DB.prepare(
+      `SELECT id, match_id, visibility, summary, created_at
+       FROM conversations
+       WHERE id = ?1`
+    )
+      .bind(conversationId)
+      .first<ConversationRow>()
+
+    if (!conversation) return status(404, { ok: false, error: 'conversation_not_found' })
+
+    const turns = await env.DB.prepare(
+      `SELECT id, conversation_id, agent_id, content, created_at
+       FROM turns
+       WHERE conversation_id = ?1
+       ORDER BY created_at ASC`
+    )
+      .bind(conversationId)
+      .all<TurnRow>()
+
+    return {
+      ok: true,
+      conversation,
+      turns: turns.results ?? [],
+    }
   }, { detail: { tags: ['mvp'] } })
   .get('/v1/trending', async ({ query, status }) => {
     if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
