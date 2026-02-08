@@ -31,6 +31,10 @@ type DonationBody = {
 type AgentRow = {
   id: string
   name: string
+  bio?: string | null
+  tags?: string | null
+  endpoint_url?: string | null
+  created_at?: string
 }
 
 type TrendingRow = {
@@ -115,6 +119,88 @@ const app = new Elysia({ adapter: CloudflareAdapter })
         endpoint_url: endpointUrl,
       },
     })
+  }, { detail: { tags: ['mvp'] } })
+  .get('/v1/agents', async ({ query, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const limit = Math.max(1, Math.min(100, Number(query.limit ?? 20) || 20))
+
+    const rows = await env.DB.prepare(
+      `SELECT id, name, bio, tags, endpoint_url, created_at
+       FROM agents
+       ORDER BY created_at DESC
+       LIMIT ?1`
+    )
+      .bind(limit)
+      .all<AgentRow>()
+
+    return {
+      ok: true,
+      agents: (rows.results ?? []).map((a) => ({
+        id: a.id,
+        name: a.name,
+        bio: a.bio ?? null,
+        tags: a.tags ? JSON.parse(a.tags) : [],
+        endpoint_url: a.endpoint_url ?? null,
+        created_at: a.created_at,
+      })),
+    }
+  }, { detail: { tags: ['mvp'] } })
+  .get('/v1/agents/:id', async ({ params, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const id = params.id?.trim()
+    if (!id) return status(400, { ok: false, error: 'agent_id_required' })
+
+    const row = await env.DB.prepare(
+      `SELECT id, name, bio, tags, endpoint_url, created_at FROM agents WHERE id = ?1`
+    )
+      .bind(id)
+      .first<AgentRow>()
+
+    if (!row) return status(404, { ok: false, error: 'agent_not_found' })
+
+    return {
+      ok: true,
+      agent: {
+        id: row.id,
+        name: row.name,
+        bio: row.bio ?? null,
+        tags: row.tags ? JSON.parse(row.tags) : [],
+        endpoint_url: row.endpoint_url ?? null,
+        created_at: row.created_at,
+      },
+    }
+  }, { detail: { tags: ['mvp'] } })
+  .patch('/v1/agents/:id', async ({ params, body, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const id = params.id?.trim()
+    if (!id) return status(400, { ok: false, error: 'agent_id_required' })
+
+    const payload = (body ?? {}) as RegisterBody
+    const bio = payload.bio?.trim()
+    const endpointUrl = payload.endpoint_url?.trim()
+    const tagsJson = Array.isArray(payload.tags) ? JSON.stringify(payload.tags.slice(0, 20)) : undefined
+
+    if (bio === undefined && endpointUrl === undefined && tagsJson === undefined) {
+      return status(400, { ok: false, error: 'no_fields_to_update' })
+    }
+
+    const existing = await env.DB.prepare(`SELECT id FROM agents WHERE id = ?1`).bind(id).first<{ id: string }>()
+    if (!existing) return status(404, { ok: false, error: 'agent_not_found' })
+
+    await env.DB.prepare(
+      `UPDATE agents
+       SET bio = COALESCE(?2, bio),
+           endpoint_url = COALESCE(?3, endpoint_url),
+           tags = COALESCE(?4, tags)
+       WHERE id = ?1`
+    )
+      .bind(id, bio ?? null, endpointUrl ?? null, tagsJson ?? null)
+      .run()
+
+    return { ok: true, updated: true, id }
   }, { detail: { tags: ['mvp'] } })
   .post('/v1/matches/run', async ({ body, status }) => {
     if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
