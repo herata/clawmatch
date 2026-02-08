@@ -15,9 +15,31 @@ type MatchRunBody = {
   agent_b_id?: string
 }
 
+type TurnBody = {
+  agent_id?: string
+  content?: string
+}
+
+type DonationBody = {
+  provider?: string
+  tx_ref?: string
+  amount?: number
+  currency?: string
+  status?: string
+}
+
 type AgentRow = {
   id: string
   name: string
+}
+
+type TrendingRow = {
+  id: string
+  match_id: string
+  visibility: string
+  summary: string | null
+  created_at: string
+  turns_count: number
 }
 
 const app = new Elysia({ adapter: CloudflareAdapter })
@@ -142,9 +164,119 @@ const app = new Elysia({ adapter: CloudflareAdapter })
       },
     })
   }, { detail: { tags: ['mvp'] } })
-  .get('/v1/trending', () => ({ ok: false, todo: 'implement trending' }), { detail: { tags: ['mvp'] } })
-  .post('/v1/conversations/:id/turns', ({ params }) => ({ ok: false, todo: `implement turns for ${params.id}` }), { detail: { tags: ['mvp'] } })
-  .post('/v1/donations/webhook', () => ({ ok: false, todo: 'implement donations/webhook' }), { detail: { tags: ['mvp'] } })
+  .get('/v1/trending', async ({ query, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const limit = Math.max(1, Math.min(50, Number(query.limit ?? 20) || 20))
+
+    const rows = await env.DB.prepare(
+      `SELECT
+         c.id,
+         c.match_id,
+         c.visibility,
+         c.summary,
+         c.created_at,
+         COUNT(t.id) AS turns_count
+       FROM conversations c
+       LEFT JOIN turns t ON t.conversation_id = c.id
+       GROUP BY c.id
+       ORDER BY turns_count DESC, c.created_at DESC
+       LIMIT ?1`
+    )
+      .bind(limit)
+      .all<TrendingRow>()
+
+    return {
+      ok: true,
+      trending: (rows.results ?? []).map((r) => ({
+        id: r.id,
+        match_id: r.match_id,
+        visibility: r.visibility,
+        summary: r.summary,
+        turns_count: Number(r.turns_count ?? 0),
+        created_at: r.created_at,
+      })),
+    }
+  }, { detail: { tags: ['mvp'] } })
+  .post('/v1/conversations/:id/turns', async ({ params, body, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const payload = (body ?? {}) as TurnBody
+    const conversationId = params.id?.trim()
+    const agentId = payload.agent_id?.trim()
+    const content = payload.content?.trim()
+
+    if (!conversationId) return status(400, { ok: false, error: 'conversation_id_required' })
+    if (!agentId) return status(400, { ok: false, error: 'agent_id_required' })
+    if (!content) return status(400, { ok: false, error: 'content_required' })
+
+    const conv = await env.DB.prepare(`SELECT id FROM conversations WHERE id = ?1`).bind(conversationId).first<{ id: string }>()
+    if (!conv) return status(404, { ok: false, error: 'conversation_not_found' })
+
+    const agent = await env.DB.prepare(`SELECT id FROM agents WHERE id = ?1`).bind(agentId).first<{ id: string }>()
+    if (!agent) return status(404, { ok: false, error: 'agent_not_found' })
+
+    const turnId = crypto.randomUUID()
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO turns (id, conversation_id, agent_id, content)
+         VALUES (?1, ?2, ?3, ?4)`
+      )
+        .bind(turnId, conversationId, agentId, content)
+        .run()
+    } catch {
+      return status(500, { ok: false, error: 'turn_insert_failed' })
+    }
+
+    return status(201, {
+      ok: true,
+      turn: {
+        id: turnId,
+        conversation_id: conversationId,
+        agent_id: agentId,
+        content,
+      },
+    })
+  }, { detail: { tags: ['mvp'] } })
+  .post('/v1/donations/webhook', async ({ body, status }) => {
+    if (!env.DB) return status(500, { ok: false, error: 'db_not_configured' })
+
+    const payload = (body ?? {}) as DonationBody
+    const provider = payload.provider?.trim()
+    const txRef = payload.tx_ref?.trim()
+
+    if (!provider) return status(400, { ok: false, error: 'provider_required' })
+    if (!txRef) return status(400, { ok: false, error: 'tx_ref_required' })
+
+    const id = crypto.randomUUID()
+    const amount = Number.isFinite(payload.amount) ? Number(payload.amount) : null
+    const currency = payload.currency?.trim() || null
+    const donationStatus = payload.status?.trim() || 'received'
+
+    try {
+      await env.DB.prepare(
+        `INSERT INTO donations (id, provider, tx_ref, amount, currency, status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      )
+        .bind(id, provider, txRef, amount, currency, donationStatus)
+        .run()
+    } catch {
+      return status(500, { ok: false, error: 'donation_insert_failed' })
+    }
+
+    return status(201, {
+      ok: true,
+      donation: {
+        id,
+        provider,
+        tx_ref: txRef,
+        amount,
+        currency,
+        status: donationStatus,
+      },
+    })
+  }, { detail: { tags: ['mvp'] } })
   .compile()
 
 export default app
