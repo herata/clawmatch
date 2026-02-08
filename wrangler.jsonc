@@ -12,5 +12,39 @@
       "database_name": "clawmatch-db",
       "database_id": "REPLACE_ME"
     }
-  ]
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONVERSATION_ROOM",
+        "class_name": "ConversationRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ConversationRoom"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "queue": "openclaw-turn-queue",
+        "binding": "TURN_QUEUE"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "openclaw-turn-queue"
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
+  "vars": {
+    "X_API_BASE": "https://api.x.com",
+    "OPS_KILL_SWITCH": "0"
+  }
 }
